@@ -304,73 +304,6 @@ def load_meddra_mapping(uploaded_file) -> Dict[str, Dict[str, str]]:
     st.success(f"MedDRA Mapping Loaded — {len(mapping):,} LLT rows")
     return mapping
 
-# ---- Permanent MedDRA master loader ----
-# Keep this file in the GitHub repository under the data folder:
-# data/MedDRA.xlsx  or  data/MedDRA.csv
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-MEDDRA_MASTER_BASENAME = "MedDRA"
-
-def find_master_meddra_file() -> Optional[Path]:
-    """Find the permanent MedDRA file in the app data folder."""
-    allowed_suffixes = (".xlsx", ".xlsm", ".csv")
-    if not DATA_DIR.exists():
-        return None
-
-    for suffix in allowed_suffixes:
-        candidate = DATA_DIR / f"{MEDDRA_MASTER_BASENAME}{suffix}"
-        if candidate.exists():
-            return candidate
-
-    wanted = {f"{MEDDRA_MASTER_BASENAME}{suffix}".lower() for suffix in allowed_suffixes}
-    for candidate in DATA_DIR.iterdir():
-        if candidate.is_file() and candidate.name.lower() in wanted:
-            return candidate
-    return None
-
-def meddra_cache_key(file_path: Path) -> Tuple[str, int, int]:
-    """Create a cache key that changes whenever the MedDRA file changes."""
-    stat = file_path.stat()
-    return (str(file_path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
-
-class _NamedBytesIO(io.BytesIO):
-    """BytesIO object with a name attribute for the existing XLSX reader."""
-    def __init__(self, data: bytes, name: str):
-        super().__init__(data)
-        self.name = name
-
-@st.cache_data(show_spinner=False)
-def load_permanent_meddra_mapping_cached(file_path_text: str, modified_time_ns: int, file_size: int) -> Dict[str, Dict[str, str]]:
-    """Load MedDRA from repository storage.
-
-    modified_time_ns and file_size are included so Streamlit refreshes cached
-    data whenever the same MedDRA filename is replaced/updated.
-    """
-    file_path = Path(file_path_text)
-    suffix = file_path.suffix.lower()
-    if suffix in {".csv", ".xlsx", ".xlsm"}:
-        file_obj = _NamedBytesIO(file_path.read_bytes(), file_path.name)
-    else:
-        return {}
-    return load_meddra_mapping(file_obj)
-
-def load_permanent_meddra_mapping() -> Dict[str, Dict[str, str]]:
-    file_path = find_master_meddra_file()
-    if not file_path:
-        st.warning("Permanent MedDRA file not found. Add data/MedDRA.xlsx or data/MedDRA.csv to GitHub.")
-        return {}
-    try:
-        file_path_text, modified_time_ns, file_size = meddra_cache_key(file_path)
-        mapping = load_permanent_meddra_mapping_cached(file_path_text, modified_time_ns, file_size)
-        st.caption(
-            f"Using permanent MedDRA master: {file_path.name} "
-            f"({len(mapping):,} LLT rows; updated {datetime.fromtimestamp(file_path.stat().st_mtime).strftime('%d-%b-%Y %H:%M')})"
-        )
-        return mapping
-    except Exception as e:
-        st.error(f"Failed to read permanent MedDRA file ({file_path.name}): {e}")
-        return {}
-
 # ---- Value helpers ----
 def read_numeric_with_unit(value_node: Optional[ET.Element]) -> str:
     if value_node is None:
@@ -2106,6 +2039,106 @@ def make_drug_compare_table(src_rec: Dict[str, Any], prc_rec: Dict[str, Any]) ->
     rows = [(f, src_rec.get(f, ''), prc_rec.get(f, '')) for f in fields]
     return compare_table(rows, treat_as_dates=False)
 
+
+# ---- Permanent MedDRA master loader ----
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+MEDDRA_MASTER_BASENAME = "MedDRA"
+
+def find_master_meddra_file() -> Optional[Path]:
+    allowed_suffixes = (".xlsx", ".xlsm", ".csv")
+    if not DATA_DIR.exists():
+        return None
+    for suffix in allowed_suffixes:
+        candidate = DATA_DIR / f"{MEDDRA_MASTER_BASENAME}{suffix}"
+        if candidate.exists():
+            return candidate
+    wanted = {f"{MEDDRA_MASTER_BASENAME}{suffix}".lower() for suffix in allowed_suffixes}
+    for candidate in DATA_DIR.iterdir():
+        if candidate.is_file() and candidate.name.lower() in wanted:
+            return candidate
+    return None
+
+def meddra_cache_key(file_path: Path) -> Tuple[str, int, int]:
+    stat = file_path.stat()
+    return (str(file_path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
+
+class _NamedBytesIO(io.BytesIO):
+    def __init__(self, data: bytes, name: str):
+        super().__init__(data)
+        self.name = name
+
+@st.cache_data(show_spinner=False)
+def load_permanent_meddra_mapping_cached(file_path_text: str, modified_time_ns: int, file_size: int) -> Dict[str, Dict[str, str]]:
+    file_path = Path(file_path_text)
+    file_obj = _NamedBytesIO(file_path.read_bytes(), file_path.name)
+    return load_meddra_mapping(file_obj)
+
+def load_permanent_meddra_mapping() -> Dict[str, Dict[str, str]]:
+    file_path = find_master_meddra_file()
+    if not file_path:
+        st.warning("Permanent MedDRA file not found. Add data/MedDRA.xlsx or data/MedDRA.csv to GitHub.")
+        return {}
+    try:
+        file_path_text, modified_time_ns, file_size = meddra_cache_key(file_path)
+        mapping = load_permanent_meddra_mapping_cached(file_path_text, modified_time_ns, file_size)
+        st.caption(f"Using permanent MedDRA master: {file_path.name} ({len(mapping):,} LLT rows)")
+        return mapping
+    except Exception as e:
+        st.error(f"Failed to read permanent MedDRA file ({file_path.name}): {e}")
+        return {}
+
+# ---------------- Factor-based Causality Assessment helpers ----------------
+PHARMACOLOGICALLY_OPTIONS = ["", "Yes", "No", "Unknown"]
+RC_OPTIONS = ["", "Positive", "Negative", "Not Done", "Not Applicable", "Unknown"]
+DECHALLENGE_OPTIONS = ["", "Positive", "Negative", "Not Done", "Not Applicable", "Unknown"]
+CONFOUNDING_OPTIONS = ["", "Yes", "No", "Unknown"]
+TIME_RELATIONSHIP_OPTIONS = ["", "Compatible", "Not Compatible", "Unknown"]
+
+def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
+    pharm = clean_value(pharmacologically).lower()
+    rc = clean_value(rechallenge).lower()
+    dc = clean_value(response_to_dc).lower()
+    conf = clean_value(confounding_factor).lower()
+    time_rel = clean_value(time_relationship).lower()
+    if not any([pharm, rc, dc, conf, time_rel]):
+        return ""
+    if time_rel == "not compatible":
+        return "Unlikely"
+    supportive = 0
+    against = 0
+    if time_rel == "compatible": supportive += 1
+    if pharm == "yes": supportive += 1
+    elif pharm == "no": against += 1
+    if rc == "positive": supportive += 2
+    elif rc == "negative": against += 2
+    if dc == "positive": supportive += 1
+    elif dc == "negative": against += 1
+    if conf == "no": supportive += 1
+    elif conf == "yes": against += 1
+    if rc == "positive" and time_rel == "compatible" and pharm == "yes" and conf == "no" and against == 0:
+        return "Certain"
+    net_score = supportive - against
+    if net_score >= 4 and time_rel == "compatible" and conf != "yes":
+        return "Probable/Likely"
+    if net_score >= 2:
+        return "Possible"
+    if against > supportive:
+        return "Unlikely"
+    return "Unassessable"
+
+def build_causality_assessment_events(src_events: List[Dict[str, Any]], prc_events: List[Dict[str, Any]]) -> List[str]:
+    labels: List[str] = []
+    seen: Set[str] = set()
+    for event_list in (src_events or [], prc_events or []):
+        for idx, event in enumerate(event_list, start=1):
+            term = clean_value(event.get("Event Term", "")) or clean_value(event.get("RRT", "")) or clean_value(event.get("LLT Term", "")) or clean_value(event.get("LLT Code", "")) or f"Event {idx}"
+            key = normalize_text(term)
+            if key and key not in seen:
+                seen.add(key)
+                labels.append(term)
+    return labels
+
 # --------------- UI: Upload & Parse ----------------
 st.markdown("### 📤 Upload the XML files to compare")
 st.info("MedDRA is loaded automatically from the GitHub repository data folder. Upload only the Source and Processed XML files here.")
@@ -2525,3 +2558,65 @@ if not prc_caus_df.empty:
     st.dataframe(prc_caus_df, use_container_width=True)
 else:
     st.markdown('<div style="color:#888">No causality rows in Processed.</div>', unsafe_allow_html=True)
+
+
+st.markdown("---")
+if st.button("🧪 Causality Assessment", key="open_factor_causality_assessment"):
+    st.session_state["show_factor_causality_assessment"] = True
+
+if st.session_state.get("show_factor_causality_assessment", False):
+    st.markdown("#### Factor-based Causality Assessment")
+    st.caption("Select the five causality factors for each event. The calculated causality is a QC aid and should be reviewed by the assessor.")
+
+    event_labels = build_causality_assessment_events(src.get("Events", []) or [], prc.get("Events", []) or [])
+    if not event_labels:
+        st.info("No events found for causality assessment.")
+    else:
+        base_rows = []
+        previous_editor = st.session_state.get("factor_causality_editor")
+        previous_by_event = {}
+        if isinstance(previous_editor, pd.DataFrame) and "Event" in previous_editor.columns:
+            previous_by_event = {str(row.get("Event", "")): row for _, row in previous_editor.iterrows()}
+        for label in event_labels:
+            prev = previous_by_event.get(label, {})
+            base_rows.append({
+                "Event": label,
+                "Pharmacologically": prev.get("Pharmacologically", ""),
+                "RC": prev.get("RC", ""),
+                "Response to DC": prev.get("Response to DC", ""),
+                "Confounding Factor": prev.get("Confounding Factor", ""),
+                "Time Relationship": prev.get("Time Relationship", ""),
+            })
+        edited_factors = st.data_editor(
+            pd.DataFrame(base_rows),
+            key="factor_causality_editor",
+            use_container_width=True,
+            hide_index=True,
+            disabled=["Event"],
+            column_config={
+                "Pharmacologically": st.column_config.SelectboxColumn("Pharmacologically", options=PHARMACOLOGICALLY_OPTIONS),
+                "RC": st.column_config.SelectboxColumn("RC", options=RC_OPTIONS),
+                "Response to DC": st.column_config.SelectboxColumn("Response to DC", options=DECHALLENGE_OPTIONS),
+                "Confounding Factor": st.column_config.SelectboxColumn("Confounding Factor", options=CONFOUNDING_OPTIONS),
+                "Time Relationship": st.column_config.SelectboxColumn("Time Relationship", options=TIME_RELATIONSHIP_OPTIONS),
+            },
+        )
+        result_df = edited_factors.copy()
+        result_df["Calculated Causality"] = result_df.apply(
+            lambda row: calculate_factor_based_causality(
+                row.get("Pharmacologically", ""),
+                row.get("RC", ""),
+                row.get("Response to DC", ""),
+                row.get("Confounding Factor", ""),
+                row.get("Time Relationship", ""),
+            ),
+            axis=1,
+        )
+        st.markdown("##### Calculated Causality")
+        st.dataframe(result_df, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Download Causality Assessment CSV",
+            data=result_df.to_csv(index=False).encode("utf-8"),
+            file_name="causality_assessment.csv",
+            mime="text/csv",
+        )
