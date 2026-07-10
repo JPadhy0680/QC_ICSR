@@ -2090,41 +2090,50 @@ def load_permanent_meddra_mapping() -> Dict[str, Dict[str, str]]:
 
 # ---------------- Factor-based Causality Assessment helpers ----------------
 PHARMACOLOGICALLY_OPTIONS = ["", "Yes", "No", "Unknown"]
-RC_OPTIONS = ["", "Positive", "Negative", "Not Done", "Not Applicable", "Unknown"]
-DECHALLENGE_OPTIONS = ["", "Positive", "Negative", "Not Done", "Not Applicable", "Unknown"]
+RC_OPTIONS = ["", "Positive", "Negative", "Unknown", "Not Applicable"]
+DECHALLENGE_OPTIONS = ["", "Positive", "Negative", "Unknown", "Not Applicable"]
 CONFOUNDING_OPTIONS = ["", "Yes", "No", "Unknown"]
-TIME_RELATIONSHIP_OPTIONS = ["", "Compatible", "Not Compatible", "Unknown"]
+TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "No", "Unknown", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
+    """Calculate causality using the user-defined five-factor logic."""
     pharm = clean_value(pharmacologically).lower()
     rc = clean_value(rechallenge).lower()
     dc = clean_value(response_to_dc).lower()
     conf = clean_value(confounding_factor).lower()
     time_rel = clean_value(time_relationship).lower()
+
     if not any([pharm, rc, dc, conf, time_rel]):
         return ""
-    if time_rel == "not compatible":
-        return "Unlikely"
-    supportive = 0
-    against = 0
-    if time_rel == "compatible": supportive += 1
-    if pharm == "yes": supportive += 1
-    elif pharm == "no": against += 1
-    if rc == "positive": supportive += 2
-    elif rc == "negative": against += 2
-    if dc == "positive": supportive += 1
-    elif dc == "negative": against += 1
-    if conf == "no": supportive += 1
-    elif conf == "yes": against += 1
-    if rc == "positive" and time_rel == "compatible" and pharm == "yes" and conf == "no" and against == 0:
-        return "Certain"
-    net_score = supportive - against
-    if net_score >= 4 and time_rel == "compatible" and conf != "yes":
-        return "Probable/Likely"
-    if net_score >= 2:
+
+    # Time relationship - Yes
+    if time_rel == "yes":
+        # Confounding factor - Yes -> Possible
+        if conf == "yes":
+            return "Possible"
+
+        # Else check Response to DC
+        if dc == "positive":
+            # DC Positive: check RC
+            if rc == "positive":
+                # RC Positive: check Pharmacology
+                if pharm == "yes":
+                    return "Certain"
+                return "Probable"
+            return "Probable"
+
         return "Possible"
-    if against > supportive:
+
+    # Time relationship - Improbable
+    if time_rel == "improbable":
         return "Unlikely"
+
+    # Time relationship - No or Unknown
+    if time_rel in {"no", "unknown"}:
+        if conf == "yes":
+            return "Unlikely"
+        return "Unassessable"
+
     return "Unassessable"
 
 def build_causality_assessment_events(src_events: List[Dict[str, Any]], prc_events: List[Dict[str, Any]]) -> List[str]:
