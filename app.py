@@ -2096,44 +2096,51 @@ CONFOUNDING_OPTIONS = ["", "Yes", "No", "Unknown"]
 TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "No", "Unknown", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
-    """Calculate causality using the user-defined five-factor logic."""
-    pharm = clean_value(pharmacologically).lower()
-    rc = clean_value(rechallenge).lower()
-    dc = clean_value(response_to_dc).lower()
-    conf = clean_value(confounding_factor).lower()
-    time_rel = clean_value(time_relationship).lower()
+    """Calculate causality using the exact user-defined decision tree.
+
+    Note: Do not use clean_value() here because "Unknown" is a valid dropdown value.
+    """
+    pharm = str(pharmacologically or "").strip().lower()
+    rc = str(rechallenge or "").strip().lower()
+    dc = str(response_to_dc or "").strip().lower()
+    conf = str(confounding_factor or "").strip().lower()
+    time_rel = str(time_relationship or "").strip().lower()
 
     if not any([pharm, rc, dc, conf, time_rel]):
         return ""
 
-    # Time relationship - Yes
+    # Time relation = Yes
     if time_rel == "yes":
-        # Confounding factor - Yes -> Possible
+        # Confounding factor = Yes -> Possible
         if conf == "yes":
             return "Possible"
 
-        # Else check Response to DC
+        # Else, check Response to DC
         if dc == "positive":
-            # DC Positive: check RC
+            # DC Positive, check RC
             if rc == "positive":
-                # RC Positive: check Pharmacology
+                # RC Positive, check Pharmacology
                 if pharm == "yes":
                     return "Certain"
                 return "Probable"
+
+            # RC not positive -> Probable
             return "Probable"
 
+        # DC not positive -> Possible
         return "Possible"
 
-    # Time relationship - Improbable
+    # Time relation = Improbable
     if time_rel == "improbable":
         return "Unlikely"
 
-    # Time relationship - No or Unknown
+    # Time relation = No or Unknown
     if time_rel in {"no", "unknown"}:
         if conf == "yes":
             return "Unlikely"
         return "Unassessable"
 
+    # Blank/other
     return "Unassessable"
 
 def build_causality_assessment_events(src_events: List[Dict[str, Any]], prc_events: List[Dict[str, Any]]) -> List[str]:
