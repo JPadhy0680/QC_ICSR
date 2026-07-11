@@ -2093,7 +2093,7 @@ PHARMACOLOGICALLY_OPTIONS = ["", "Yes", "No", "Unknown"]
 RC_OPTIONS = ["", "Positive", "Negative", "Unknown", "Not Applicable"]
 DECHALLENGE_OPTIONS = ["", "Positive", "Negative", "Unknown", "Not Applicable"]
 CONFOUNDING_OPTIONS = ["", "Yes", "No", "Unknown"]
-TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "No", "Unknown", "Improbable"]
+TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "Unknown", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
     """Calculate causality using the criteria/factor matrix supplied by the user.
@@ -2594,8 +2594,16 @@ if st.session_state.get("show_factor_causality_assessment", False):
                 "Confounding Factor": prev.get("Confounding Factor", ""),
                 "Time Relationship": prev.get("Time Relationship", ""),
             })
+        factor_columns = [
+            "Event",
+            "Time Relationship",
+            "Confounding Factor",
+            "Response to DC",
+            "RC",
+            "Pharmacologically",
+        ]
         edited_factors = st.data_editor(
-            pd.DataFrame(base_rows),
+            pd.DataFrame(base_rows, columns=factor_columns),
             key="factor_causality_editor",
             use_container_width=True,
             hide_index=True,
@@ -2609,6 +2617,14 @@ if st.session_state.get("show_factor_causality_assessment", False):
             },
         )
         result_df = edited_factors.copy()
+        result_df = result_df[[
+            "Event",
+            "Time Relationship",
+            "Confounding Factor",
+            "Response to DC",
+            "RC",
+            "Pharmacologically",
+        ]]
         result_df["Calculated Causality"] = result_df.apply(
             lambda row: calculate_factor_based_causality(
                 row.get("Pharmacologically", ""),
