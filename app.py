@@ -8,8 +8,8 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 from pathlib import Path
 
 # ---------------- UI setup ----------------
-st.set_page_config(page_title="📄XML_R3 Comparator📄", layout="wide")
-st.title("📄XML_R3 Comparator📄")
+st.set_page_config(page_title="XML R3 Comparator", layout="wide")
+st.title("XML R3 Comparator")
 
 # ---------------- Utilities ----------------
 NS = {'hl7': 'urn:hl7-org:v3', 'xsi': 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -2288,7 +2288,7 @@ if src.get("_error") or prc.get("_error"):
     st.error(f"Source error: {src.get('_error', '-')}\nProcessed error: {prc.get('_error', '-')}")
     st.stop()
 
-# ---------------- UI controls, navigation and top summary ----------------
+# ---------------- UI controls and navigation ----------------
 st.sidebar.title("QC Navigation")
 st.sidebar.checkbox("Show only mismatches / missing", key="show_only_mismatches")
 st.sidebar.markdown("""
@@ -2304,44 +2304,6 @@ st.sidebar.markdown("""
 - [Narrative](#narrative)
 - [Causality](#causality)
 """)
-
-with st.container(border=True):
-    st.markdown("### Case identifiers")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>Source WWID</div><div class='qc-kpi-value'>{safe_disp(src.get('WWID', ''))}</div></div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>Processed WWID</div><div class='qc-kpi-value'>{safe_disp(prc.get('WWID', ''))}</div></div>", unsafe_allow_html=True)
-    c3.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>Day Zero</div><div class='qc-kpi-value'>{safe_disp((src.get('TD', '') or format_date(src.get('TD_raw', ''))))}</div></div>", unsafe_allow_html=True)
-    c4.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>First Sender</div><div class='qc-kpi-value'>{safe_disp(src.get('First Sender Type', '') or prc.get('First Sender Type', ''))}</div></div>", unsafe_allow_html=True)
-
-# Lightweight mismatch summary for immediate QC focus.
-summary_rows = []
-try:
-    summary_rows.append({"Section": "Admin", "Mismatches/Missing": count_mismatch_rows(make_admin_table(src, prc)), "Source records": 1, "Processed records": 1})
-    summary_rows.append({"Section": "Patient", "Mismatches/Missing": count_mismatch_rows(make_patient_table(src.get('Patient', {}), prc.get('Patient', {}))), "Source records": 1, "Processed records": 1})
-    src_reps_tmp = src.get("Reporters", []) or []
-    prc_reps_tmp = prc.get("Reporters", []) or []
-    rep_mis = 0
-    for i in range(max(len(src_reps_tmp), len(prc_reps_tmp))):
-        rep_mis += count_mismatch_rows(make_reporter_pair_table(src_reps_tmp[i] if i < len(src_reps_tmp) else {}, prc_reps_tmp[i] if i < len(prc_reps_tmp) else {}))
-    summary_rows.append({"Section": "Reporter", "Mismatches/Missing": rep_mis, "Source records": len(src_reps_tmp), "Processed records": len(prc_reps_tmp)})
-    summary_rows.append({"Section": "Drug", "Mismatches/Missing": "Review detail", "Source records": len(src.get('Products', []) or []), "Processed records": len(prc.get('Products', []) or [])})
-    summary_rows.append({"Section": "Event", "Mismatches/Missing": "Review detail", "Source records": len(src.get('Events', []) or []), "Processed records": len(prc.get('Events', []) or [])})
-    summary_rows.append({"Section": "Lab", "Mismatches/Missing": "Review detail", "Source records": len(src.get('LabDetails', []) or []), "Processed records": len(prc.get('LabDetails', []) or [])})
-    summary_rows.append({"Section": "Causality", "Mismatches/Missing": "Review detail", "Source records": len(src.get('Causality', []) or []), "Processed records": len(prc.get('Causality', []) or [])})
-    summary_df = pd.DataFrame(summary_rows)
-    with st.expander("Comparison Summary", expanded=True):
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-        out_xlsx = io.BytesIO()
-        with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
-            summary_df.to_excel(writer, sheet_name="Summary", index=False)
-            make_admin_table(src, prc).to_excel(writer, sheet_name="Admin", index=False)
-            make_patient_table(src.get('Patient', {}), prc.get('Patient', {})).to_excel(writer, sheet_name="Patient", index=False)
-            make_amendment_nullification_table(src.get('Amendment/Nullification', {}) or {}, prc.get('Amendment/Nullification', {}) or {}).to_excel(writer, sheet_name="Amendment", index=False)
-            pd.DataFrame(src.get('Causality', []) or []).to_excel(writer, sheet_name="Causality_Source", index=False)
-            pd.DataFrame(prc.get('Causality', []) or []).to_excel(writer, sheet_name="Causality_Processed", index=False)
-        st.download_button("Download QC summary Excel", data=out_xlsx.getvalue(), file_name="qc_summary.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-except Exception as e:
-    st.warning(f"Could not build summary/export: {e}")
 
 # ==========================================================
 # DISPLAY — ORDER YOU REQUESTED
@@ -2831,8 +2793,12 @@ if st.session_state.get("show_factor_causality_assessment", False):
         rclass = _result_class(calculated_causality)
         result_text = calculated_causality if calculated_causality else "Select factor values to calculate causality."
         st.markdown(f"<div class='qc-result {rclass}'>{result_text}</div>", unsafe_allow_html=True)
-        if st.button("Reset Causality Factors", key="reset_causality_factors"):
+        def _reset_causality_factor_values():
             for key in ["causality_time_relationship", "causality_confounding_factor", "causality_response_to_dc", "causality_rc", "causality_pharmacologically"]:
-                if key in st.session_state:
-                    st.session_state[key] = ""
-            st.rerun()
+                st.session_state[key] = ""
+
+        st.button(
+            "Reset Causality Factors",
+            key="reset_causality_factors",
+            on_click=_reset_causality_factor_values,
+        )
