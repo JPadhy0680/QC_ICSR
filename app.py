@@ -2119,31 +2119,56 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     conf_yes = conf == "yes"
     conf_no = conf == "no"
     conf_blank = conf == ""
+    conf_no_or_blank = conf in {"no", ""}
     conf_plausible = conf == "plausible"
     time_yes = time_rel == "yes"
     time_improbable = time_rel in {"improbable", "improbabe"}
     time_unknown = time_rel in {"unk", "unknown"}
 
+    # Certain: Pharm Yes + RC +Ve/NA + DC +Ve + Confounding No + Time Yes
     if pharm_yes and rc_positive_or_na and dc_positive and conf_no and time_yes:
         return "Certain"
+
+    # Probable 1: Pharm No + RC Any + DC +Ve + Confounding No + Time Yes
     if pharm_no and dc_positive and conf_no and time_yes:
         return "Probable"
-    if pharm_yes and rc_negative_or_unknown and dc_positive and conf_no and time_yes:
+
+    # Probable 2: Pharm Any + RC -Ve/Unk + DC +Ve + Confounding No + Time Yes
+    if rc_negative_or_unknown and dc_positive and conf_no and time_yes:
         return "Probable"
+
+    # Probable 3: Pharm Any + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
+    if rc_negative_or_unknown and dc_positive and conf_no_or_blank and time_yes:
+        return "Probable"
+
+    # Possible 1: Pharm Any + RC Any + DC -Ve/Unk/NA + Confounding No + Time Yes
     if dc_negative_unknown_na and conf_no and time_yes:
         return "Possible"
+
+    # Possible 2: Pharm Any + RC Any + DC Any + Confounding Yes + Time Yes
     if conf_yes and time_yes:
         return "Possible"
+
+    # Possible 3: Pharm Blank + RC Blank + DC Blank + Confounding Blank + Time Yes
     if pharm_blank and rc_blank and dc_blank and conf_blank and time_yes:
         return "Possible"
+
+    # Possible 4: Pharm Blank + RC Blank + DC Blank + Confounding No + Time Yes
     if pharm_blank and rc_blank and dc_blank and conf_no and time_yes:
         return "Possible"
+
+    # Unlikely 1: Time Improbable, all other factors any value
     if time_improbable:
         return "Unlikely"
+
+    # Unlikely 2/3: Confounding Plausible, all other factors any value
     if conf_plausible:
         return "Unlikely"
+
+    # Unassessable: Time Unk, unless already matched above
     if time_unknown:
         return "Unassessable"
+
     return "Unassessable"
 
 def build_causality_assessment_events(src_events: List[Dict[str, Any]], prc_events: List[Dict[str, Any]]) -> List[str]:
