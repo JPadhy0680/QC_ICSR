@@ -2125,27 +2125,27 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     time_improbable = time_rel in {"improbable", "improbabe"}
     time_unknown = time_rel in {"unk", "unknown"}
 
-    # Certain: Pharm Yes + RC +Ve/NA + DC +Ve + Confounding No + Time Yes
-    if pharm_yes and rc_positive_or_na and dc_positive and conf_no and time_yes:
+    # Certain: Pharm Yes + RC +Ve/NA + DC +Ve + Confounding No/Blank + Time Yes
+    if pharm_yes and rc_positive_or_na and dc_positive and conf_no_or_blank and time_yes:
         return "Certain"
 
-    # Probable 1: Pharm No + RC Any + DC +Ve + Confounding No + Time Yes
-    if pharm_no and dc_positive and conf_no and time_yes:
+    # Probable 1: Pharm No + RC Any Value + DC +Ve + Confounding No/Blank + Time Yes
+    if pharm_no and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
-    # Probable 2: Pharm Any + RC -Ve/Unk + DC +Ve + Confounding No + Time Yes
-    if rc_negative_or_unknown and dc_positive and conf_no and time_yes:
-        return "Probable"
-
-    # Probable 3: Pharm Any + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
+    # Probable 2: Pharm Any Value + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
     if rc_negative_or_unknown and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
-    # Possible 1: Pharm Any + RC Any + DC -Ve/Unk/NA + Confounding No + Time Yes
+    # Probable 3: Pharm Blank + RC Blank + DC +Ve + Confounding No/Blank + Time Yes
+    if pharm_blank and rc_blank and dc_positive and conf_no_or_blank and time_yes:
+        return "Probable"
+
+    # Possible 1: Pharm Any Value + RC Any Value + DC -Ve/Unk/NA + Confounding No + Time Yes
     if dc_negative_unknown_na and conf_no and time_yes:
         return "Possible"
 
-    # Possible 2: Pharm Any + RC Any + DC Any + Confounding Yes + Time Yes
+    # Possible 2: Pharm Any Value + RC Any Value + DC Any Value + Confounding Yes + Time Yes
     if conf_yes and time_yes:
         return "Possible"
 
@@ -2157,11 +2157,11 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     if pharm_blank and rc_blank and dc_blank and conf_no and time_yes:
         return "Possible"
 
-    # Unlikely 1: Time Improbable, all other factors any value
+    # Unlikely 1: Time Improbable, all other factors Any Value
     if time_improbable:
         return "Unlikely"
 
-    # Unlikely 2/3: Confounding Plausible, all other factors any value
+    # Unlikely 2/3: Confounding Plausible, all other factors Any Value
     if conf_plausible:
         return "Unlikely"
 
