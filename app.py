@@ -2585,69 +2585,54 @@ if st.button("🧪 Causality Assessment", key="open_factor_causality_assessment"
 
 if st.session_state.get("show_factor_causality_assessment", False):
     st.markdown("#### Factor-based Causality Assessment")
-    st.caption("Select the causality factors for each event. The calculated causality is shown in the same row.")
+    st.caption("Select factors in one row. The result appears below.")
 
     event_labels = build_causality_assessment_events(src.get("Events", []) or [], prc.get("Events", []) or [])
     if not event_labels:
         st.info("No events found for causality assessment.")
     else:
-        factor_columns = ["Event", "Time Relationship", "Confounding Factor", "Response to DC", "RC", "Pharmacologically", "Calculated Causality"]
-
-        base_rows = []
-        for label in event_labels:
-            base_rows.append({
-                "Event": label,
-                "Time Relationship": "",
-                "Confounding Factor": "",
-                "Response to DC": "",
-                "RC": "",
-                "Pharmacologically": "",
-                "Calculated Causality": "",
-            })
-
-        # st.data_editor stores edits as a dict in session_state. Apply those edits
-        # before calculating causality, otherwise the calculated value appears blank.
-        previous_editor = st.session_state.get("factor_causality_editor")
-        if isinstance(previous_editor, dict):
-            for row_idx, changes in previous_editor.get("edited_rows", {}).items():
-                try:
-                    idx = int(row_idx)
-                except Exception:
-                    continue
-                if 0 <= idx < len(base_rows):
-                    for col, val in changes.items():
-                        if col in base_rows[idx] and col != "Calculated Causality":
-                            base_rows[idx][col] = val
-        elif isinstance(previous_editor, pd.DataFrame) and "Event" in previous_editor.columns:
-            previous_by_event = {str(row.get("Event", "")): row for _, row in previous_editor.iterrows()}
-            for row in base_rows:
-                prev = previous_by_event.get(row["Event"])
-                if prev is not None:
-                    for col in factor_columns:
-                        if col in prev and col != "Calculated Causality":
-                            row[col] = prev.get(col, "")
-
-        for row in base_rows:
-            row["Calculated Causality"] = calculate_factor_based_causality(
-                row.get("Pharmacologically", ""),
-                row.get("RC", ""),
-                row.get("Response to DC", ""),
-                row.get("Confounding Factor", ""),
-                row.get("Time Relationship", ""),
-            )
-
-        st.data_editor(
-            pd.DataFrame(base_rows, columns=factor_columns),
-            key="factor_causality_editor",
-            use_container_width=True,
-            hide_index=True,
-            disabled=["Event", "Calculated Causality"],
-            column_config={
-                "Time Relationship": st.column_config.SelectboxColumn("Time Relationship", options=TIME_RELATIONSHIP_OPTIONS),
-                "Confounding Factor": st.column_config.SelectboxColumn("Confounding Factor", options=CONFOUNDING_OPTIONS),
-                "Response to DC": st.column_config.SelectboxColumn("Response to DC", options=DECHALLENGE_OPTIONS),
-                "RC": st.column_config.SelectboxColumn("RC", options=RC_OPTIONS),
-                "Pharmacologically": st.column_config.SelectboxColumn("Pharmacologically", options=PHARMACOLOGICALLY_OPTIONS),
-                "Calculated Causality": st.column_config.TextColumn("Calculated Causality"),
-            },
+        selected_event = st.selectbox(
+            "Event",
+            options=event_labels,
+            key="causality_single_event",
         )
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        with c1:
+            time_value = st.selectbox("Time Relationship", TIME_RELATIONSHIP_OPTIONS, key="causality_time_relationship")
+        with c2:
+            conf_value = st.selectbox("Confounding Factor", CONFOUNDING_OPTIONS, key="causality_confounding_factor")
+        with c3:
+            dc_value = st.selectbox("Response to DC", DECHALLENGE_OPTIONS, key="causality_response_to_dc")
+        with c4:
+            rc_value = st.selectbox("RC", RC_OPTIONS, key="causality_rc")
+        with c5:
+            pharm_value = st.selectbox("Pharmacologically", PHARMACOLOGICALLY_OPTIONS, key="causality_pharmacologically")
+
+        calculated_causality = calculate_factor_based_causality(
+            pharm_value,
+            rc_value,
+            dc_value,
+            conf_value,
+            time_value,
+        )
+
+        st.markdown("##### Calculated Causality")
+        if calculated_causality:
+            st.markdown(
+                f"""
+                <div style="border:1px solid #d9e2ec; border-radius:10px; padding:16px 18px; background:#f8fbff; font-size:18px; font-weight:700;">
+                    {calculated_causality}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <div style="border:1px solid #e5e7eb; border-radius:10px; padding:16px 18px; background:#fafafa; color:#6b7280;">
+                    Select factor values to calculate causality.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
