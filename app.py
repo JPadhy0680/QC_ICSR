@@ -2591,30 +2591,51 @@ if st.session_state.get("show_factor_causality_assessment", False):
     if not event_labels:
         st.info("No events found for causality assessment.")
     else:
-        previous_editor = st.session_state.get("factor_causality_editor")
-        previous_by_event = {}
-        if isinstance(previous_editor, pd.DataFrame) and "Event" in previous_editor.columns:
-            previous_by_event = {str(row.get("Event", "")): row for _, row in previous_editor.iterrows()}
+        factor_columns = ["Event", "Time Relationship", "Confounding Factor", "Response to DC", "RC", "Pharmacologically", "Calculated Causality"]
 
         base_rows = []
         for label in event_labels:
-            prev = previous_by_event.get(label, {})
-            time_value = prev.get("Time Relationship", "")
-            conf_value = prev.get("Confounding Factor", "")
-            dc_value = prev.get("Response to DC", "")
-            rc_value = prev.get("RC", "")
-            pharm_value = prev.get("Pharmacologically", "")
             base_rows.append({
                 "Event": label,
-                "Time Relationship": time_value,
-                "Confounding Factor": conf_value,
-                "Response to DC": dc_value,
-                "RC": rc_value,
-                "Pharmacologically": pharm_value,
-                "Calculated Causality": calculate_factor_based_causality(pharm_value, rc_value, dc_value, conf_value, time_value),
+                "Time Relationship": "",
+                "Confounding Factor": "",
+                "Response to DC": "",
+                "RC": "",
+                "Pharmacologically": "",
+                "Calculated Causality": "",
             })
 
-        factor_columns = ["Event", "Time Relationship", "Confounding Factor", "Response to DC", "RC", "Pharmacologically", "Calculated Causality"]
+        # st.data_editor stores edits as a dict in session_state. Apply those edits
+        # before calculating causality, otherwise the calculated value appears blank.
+        previous_editor = st.session_state.get("factor_causality_editor")
+        if isinstance(previous_editor, dict):
+            for row_idx, changes in previous_editor.get("edited_rows", {}).items():
+                try:
+                    idx = int(row_idx)
+                except Exception:
+                    continue
+                if 0 <= idx < len(base_rows):
+                    for col, val in changes.items():
+                        if col in base_rows[idx] and col != "Calculated Causality":
+                            base_rows[idx][col] = val
+        elif isinstance(previous_editor, pd.DataFrame) and "Event" in previous_editor.columns:
+            previous_by_event = {str(row.get("Event", "")): row for _, row in previous_editor.iterrows()}
+            for row in base_rows:
+                prev = previous_by_event.get(row["Event"])
+                if prev is not None:
+                    for col in factor_columns:
+                        if col in prev and col != "Calculated Causality":
+                            row[col] = prev.get(col, "")
+
+        for row in base_rows:
+            row["Calculated Causality"] = calculate_factor_based_causality(
+                row.get("Pharmacologically", ""),
+                row.get("RC", ""),
+                row.get("Response to DC", ""),
+                row.get("Confounding Factor", ""),
+                row.get("Time Relationship", ""),
+            )
+
         st.data_editor(
             pd.DataFrame(base_rows, columns=factor_columns),
             key="factor_causality_editor",
