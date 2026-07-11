@@ -2089,16 +2089,20 @@ def load_permanent_meddra_mapping() -> Dict[str, Dict[str, str]]:
         return {}
 
 # ---------------- Factor-based Causality Assessment helpers ----------------
-PHARMACOLOGICALLY_OPTIONS = ["", "Yes", "No", "Unknown"]
-RC_OPTIONS = ["", "Positive", "Negative", "Unknown", "Not Applicable"]
-DECHALLENGE_OPTIONS = ["", "Positive", "Negative", "Unknown", "Not Applicable"]
-CONFOUNDING_OPTIONS = ["", "Yes", "No", "Unknown"]
-TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "Unknown", "Improbable"]
+PHARMACOLOGICALLY_OPTIONS = ["", "Yes", "No"]
+RC_OPTIONS = ["", "+Ve", "-Ve", "Unk", "NA"]
+DECHALLENGE_OPTIONS = ["", "+Ve", "-Ve", "Unk", "NA"]
+CONFOUNDING_OPTIONS = ["", "Yes", "No", "Plausible"]
+TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "Unk", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
-    """Calculate causality using the criteria/factor matrix supplied by the user.
+    """Calculate causality using the updated criteria/factor matrix.
 
-    Note: Do not use clean_value() here because "Unknown" is a valid dropdown value.
+    Dropdowns use short labels:
+    +Ve = Positive, -Ve = Negative, Unk = Unknown, NA = Not Applicable.
+
+    Matrix priority is applied left to right:
+    Certain, Probable, Probable, Possible, Possible, Unlikely, Unlikely, Unlikely, Unassessable.
     """
     pharm = str(pharmacologically or "").strip().lower()
     rc = str(rechallenge or "").strip().lower()
@@ -2109,29 +2113,53 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     if not any([pharm, rc, dc, conf, time_rel]):
         return ""
 
+    # Normalize possible legacy labels also, so older selections still calculate correctly.
+    rc_positive = rc in {"+ve", "positive", "+ve/ na", "+ve/na"}
+    rc_negative_unknown_na = rc in {"-ve", "negative", "unk", "unknown", "na", "not applicable", "- ve", "-ve/ unk", "-ve/unk"}
+    dc_positive = dc in {"+ve", "positive"}
+    dc_negative_unknown_na = dc in {"-ve", "negative", "unk", "unknown", "na", "not applicable", "- ve", "-ve/ unk", "-ve/unk"}
+
     pharm_yes = pharm == "yes"
-    pharm_no_unknown = pharm in {"no", "unknown"}
-    rc_positive = rc == "positive"
-    rc_negative_unknown_na = rc in {"negative", "unknown", "not applicable"}
-    dc_positive = dc == "positive"
+    pharm_no = pharm == "no"
     conf_yes = conf == "yes"
     conf_no = conf == "no"
+    conf_plausible = conf == "plausible"
     time_yes = time_rel == "yes"
-    time_improbable = time_rel == "improbable"
-    time_unknown = time_rel == "unknown"
+    time_improbable = time_rel in {"improbable", "improbabe"}
+    time_unknown = time_rel in {"unk", "unknown"}
 
-    if pharm_yes and rc_positive and dc_positive and conf_no and time_yes:
+    # Certain: Pharm Yes + RC +Ve/NA + DC +Ve + Confounding No + Time Yes
+    if pharm_yes and (rc_positive or rc in {"na", "not applicable"}) and dc_positive and conf_no and time_yes:
         return "Certain"
-    if pharm_no_unknown and rc_negative_unknown_na and dc_positive and conf_no and time_yes:
+
+    # Probable 1: Pharm No + RC Any Value + DC +Ve + Confounding No + Time Yes
+    if pharm_no and dc_positive and conf_no and time_yes:
         return "Probable"
+
+    # Probable 2: Pharm Yes + RC -Ve/Unk + DC +Ve + Confounding No + Time Yes
+    if pharm_yes and rc in {"-ve", "negative", "unk", "unknown", "- ve"} and dc_positive and conf_no and time_yes:
+        return "Probable"
+
+    # Possible 1: DC -Ve/Unk/NA + Confounding No + Time Yes; other factors any value
+    if dc_negative_unknown_na and conf_no and time_yes:
+        return "Possible"
+
+    # Possible 2: Confounding Yes + Time Yes; other factors any value
     if conf_yes and time_yes:
         return "Possible"
+
+    # Unlikely 1: Time Relationship Improbable; other factors any value
     if time_improbable:
         return "Unlikely"
-    if conf_yes:
+
+    # Unlikely 2: Confounding Factor Plausible; other factors any value
+    if conf_plausible:
         return "Unlikely"
+
+    # Unassessable: Time Relationship Unk; other factors any value, unless already matched above
     if time_unknown:
         return "Unassessable"
+
     return "Unassessable"
 
 def build_causality_assessment_events(src_events: List[Dict[str, Any]], prc_events: List[Dict[str, Any]]) -> List[str]:
