@@ -2096,13 +2096,14 @@ CONFOUNDING_OPTIONS = ["", "Yes", "No", "Plausible"]
 TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "Unk", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
-    """Calculate causality using the updated criteria/factor matrix.
+    """Calculate causality using the updated matrix supplied by the user.
 
     Dropdowns use short labels:
     +Ve = Positive, -Ve = Negative, Unk = Unknown, NA = Not Applicable.
 
     Matrix priority is applied left to right:
-    Certain, Probable, Probable, Possible, Possible, Unlikely, Unlikely, Unlikely, Unassessable.
+    Certain, Probable, Probable, Possible, Possible, Possible, Possible,
+    Unlikely, Unlikely, Unlikely, Unassessable.
     """
     pharm = str(pharmacologically or "").strip().lower()
     rc = str(rechallenge or "").strip().lower()
@@ -2113,23 +2114,26 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     if not any([pharm, rc, dc, conf, time_rel]):
         return ""
 
-    # Normalize possible legacy labels also, so older selections still calculate correctly.
-    rc_positive = rc in {"+ve", "positive", "+ve/ na", "+ve/na"}
-    rc_negative_unknown_na = rc in {"-ve", "negative", "unk", "unknown", "na", "not applicable", "- ve", "-ve/ unk", "-ve/unk"}
+    rc_positive_or_na = rc in {"+ve", "positive", "na", "not applicable", "+ve/ na", "+ve/na"}
+    rc_negative_or_unknown = rc in {"-ve", "negative", "unk", "unknown", "- ve", "-ve/ unk", "-ve/unk"}
     dc_positive = dc in {"+ve", "positive"}
     dc_negative_unknown_na = dc in {"-ve", "negative", "unk", "unknown", "na", "not applicable", "- ve", "-ve/ unk", "-ve/unk"}
 
     pharm_yes = pharm == "yes"
     pharm_no = pharm == "no"
+    pharm_blank = pharm == ""
+    rc_blank = rc == ""
+    dc_blank = dc == ""
     conf_yes = conf == "yes"
     conf_no = conf == "no"
+    conf_blank = conf == ""
     conf_plausible = conf == "plausible"
     time_yes = time_rel == "yes"
     time_improbable = time_rel in {"improbable", "improbabe"}
     time_unknown = time_rel in {"unk", "unknown"}
 
     # Certain: Pharm Yes + RC +Ve/NA + DC +Ve + Confounding No + Time Yes
-    if pharm_yes and (rc_positive or rc in {"na", "not applicable"}) and dc_positive and conf_no and time_yes:
+    if pharm_yes and rc_positive_or_na and dc_positive and conf_no and time_yes:
         return "Certain"
 
     # Probable 1: Pharm No + RC Any Value + DC +Ve + Confounding No + Time Yes
@@ -2137,26 +2141,34 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
         return "Probable"
 
     # Probable 2: Pharm Yes + RC -Ve/Unk + DC +Ve + Confounding No + Time Yes
-    if pharm_yes and rc in {"-ve", "negative", "unk", "unknown", "- ve"} and dc_positive and conf_no and time_yes:
+    if pharm_yes and rc_negative_or_unknown and dc_positive and conf_no and time_yes:
         return "Probable"
 
-    # Possible 1: DC -Ve/Unk/NA + Confounding No + Time Yes; other factors any value
+    # Possible 1: Pharm Any + RC Any + DC -Ve/Unk/NA + Confounding No + Time Yes
     if dc_negative_unknown_na and conf_no and time_yes:
         return "Possible"
 
-    # Possible 2: Confounding Yes + Time Yes; other factors any value
+    # Possible 2: Pharm Any + RC Any + DC Any + Confounding Yes + Time Yes
     if conf_yes and time_yes:
         return "Possible"
 
-    # Unlikely 1: Time Relationship Improbable; other factors any value
+    # Possible 3: Pharm Blank + RC Blank + DC Blank + Confounding Blank + Time Yes
+    if pharm_blank and rc_blank and dc_blank and conf_blank and time_yes:
+        return "Possible"
+
+    # Possible 4: Pharm Blank + RC Blank + DC Blank + Confounding No + Time Yes
+    if pharm_blank and rc_blank and dc_blank and conf_no and time_yes:
+        return "Possible"
+
+    # Unlikely 1: Time Relationship Improbable, all other factors any value
     if time_improbable:
         return "Unlikely"
 
-    # Unlikely 2: Confounding Factor Plausible; other factors any value
+    # Unlikely 2/3: Confounding Factor Plausible, all other factors any value
     if conf_plausible:
         return "Unlikely"
 
-    # Unassessable: Time Relationship Unk; other factors any value, unless already matched above
+    # Unassessable: Time Relationship Unk, unless already matched above
     if time_unknown:
         return "Unassessable"
 
@@ -2595,79 +2607,80 @@ else:
     st.markdown('<div style="color:#888">No causality rows in Processed.</div>', unsafe_allow_html=True)
 
 
-st.markdown("---")
-if st.button("🧪 Causality Assessment", key="open_factor_causality_assessment"):
-    st.session_state["show_factor_causality_assessment"] = True
 
-if st.session_state.get("show_factor_causality_assessment", False):
-    st.markdown("#### Factor-based Causality Assessment")
-    st.caption("Select the five causality factors for each event. The calculated causality is a QC aid and should be reviewed by the assessor.")
-
+def _build_factor_causality_table(src: Dict[str, Any], prc: Dict[str, Any]) -> pd.DataFrame:
     event_labels = build_causality_assessment_events(src.get("Events", []) or [], prc.get("Events", []) or [])
-    if not event_labels:
-        st.info("No events found for causality assessment.")
-    else:
-        base_rows = []
-        previous_editor = st.session_state.get("factor_causality_editor")
-        previous_by_event = {}
-        if isinstance(previous_editor, pd.DataFrame) and "Event" in previous_editor.columns:
-            previous_by_event = {str(row.get("Event", "")): row for _, row in previous_editor.iterrows()}
-        for label in event_labels:
-            prev = previous_by_event.get(label, {})
-            base_rows.append({
-                "Event": label,
-                "Pharmacologically": prev.get("Pharmacologically", ""),
-                "RC": prev.get("RC", ""),
-                "Response to DC": prev.get("Response to DC", ""),
-                "Confounding Factor": prev.get("Confounding Factor", ""),
-                "Time Relationship": prev.get("Time Relationship", ""),
-            })
-        factor_columns = [
-            "Event",
-            "Time Relationship",
-            "Confounding Factor",
-            "Response to DC",
-            "RC",
-            "Pharmacologically",
-        ]
-        edited_factors = st.data_editor(
-            pd.DataFrame(base_rows, columns=factor_columns),
-            key="factor_causality_editor",
-            use_container_width=True,
-            hide_index=True,
-            disabled=["Event"],
-            column_config={
-                "Pharmacologically": st.column_config.SelectboxColumn("Pharmacologically", options=PHARMACOLOGICALLY_OPTIONS),
-                "RC": st.column_config.SelectboxColumn("RC", options=RC_OPTIONS),
-                "Response to DC": st.column_config.SelectboxColumn("Response to DC", options=DECHALLENGE_OPTIONS),
-                "Confounding Factor": st.column_config.SelectboxColumn("Confounding Factor", options=CONFOUNDING_OPTIONS),
-                "Time Relationship": st.column_config.SelectboxColumn("Time Relationship", options=TIME_RELATIONSHIP_OPTIONS),
-            },
-        )
-        result_df = edited_factors.copy()
-        result_df = result_df[[
-            "Event",
-            "Time Relationship",
-            "Confounding Factor",
-            "Response to DC",
-            "RC",
-            "Pharmacologically",
-        ]]
-        result_df["Calculated Causality"] = result_df.apply(
-            lambda row: calculate_factor_based_causality(
-                row.get("Pharmacologically", ""),
-                row.get("RC", ""),
-                row.get("Response to DC", ""),
-                row.get("Confounding Factor", ""),
-                row.get("Time Relationship", ""),
+    rows: List[Dict[str, str]] = []
+    previous_editor = st.session_state.get("factor_causality_editor")
+    previous_by_event: Dict[str, Any] = {}
+    if isinstance(previous_editor, pd.DataFrame) and "Event" in previous_editor.columns:
+        previous_by_event = {str(row.get("Event", "")): row for _, row in previous_editor.iterrows()}
+
+    for label in event_labels:
+        prev = previous_by_event.get(label, {})
+        time_value = prev.get("Time Relationship", "")
+        conf_value = prev.get("Confounding Factor", "")
+        dc_value = prev.get("Response to DC", "")
+        rc_value = prev.get("RC", "")
+        pharm_value = prev.get("Pharmacologically", "")
+        rows.append({
+            "Event": label,
+            "Time Relationship": time_value,
+            "Confounding Factor": conf_value,
+            "Response to DC": dc_value,
+            "RC": rc_value,
+            "Pharmacologically": pharm_value,
+            "Calculated Causality": calculate_factor_based_causality(
+                pharm_value,
+                rc_value,
+                dc_value,
+                conf_value,
+                time_value,
             ),
-            axis=1,
-        )
-        st.markdown("##### Calculated Causality")
-        st.dataframe(result_df, use_container_width=True, hide_index=True)
-        st.download_button(
-            "Download Causality Assessment CSV",
-            data=result_df.to_csv(index=False).encode("utf-8"),
-            file_name="causality_assessment.csv",
-            mime="text/csv",
-        )
+        })
+
+    return pd.DataFrame(rows, columns=[
+        "Event",
+        "Time Relationship",
+        "Confounding Factor",
+        "Response to DC",
+        "RC",
+        "Pharmacologically",
+        "Calculated Causality",
+    ])
+
+def _render_factor_causality_editor(src: Dict[str, Any], prc: Dict[str, Any]):
+    factor_df = _build_factor_causality_table(src, prc)
+    if factor_df.empty:
+        st.info("No events found for causality assessment.")
+        return
+
+    st.caption("Select the causality factors for each event. Calculated Causality updates from the factor matrix after each selection.")
+    st.data_editor(
+        factor_df,
+        key="factor_causality_editor",
+        use_container_width=True,
+        hide_index=True,
+        disabled=["Event", "Calculated Causality"],
+        column_config={
+            "Time Relationship": st.column_config.SelectboxColumn("Time Relationship", options=TIME_RELATIONSHIP_OPTIONS),
+            "Confounding Factor": st.column_config.SelectboxColumn("Confounding Factor", options=CONFOUNDING_OPTIONS),
+            "Response to DC": st.column_config.SelectboxColumn("Response to DC", options=DECHALLENGE_OPTIONS),
+            "RC": st.column_config.SelectboxColumn("RC", options=RC_OPTIONS),
+            "Pharmacologically": st.column_config.SelectboxColumn("Pharmacologically", options=PHARMACOLOGICALLY_OPTIONS),
+            "Calculated Causality": st.column_config.TextColumn("Calculated Causality"),
+        },
+    )
+
+if hasattr(st, "dialog"):
+    @st.dialog("Causality Assessment")
+    def _causality_assessment_dialog():
+        _render_factor_causality_editor(src, prc)
+else:
+    def _causality_assessment_dialog():
+        with st.container(border=True):
+            st.markdown("Causality Assessment")
+            _render_factor_causality_editor(src, prc)
+
+if st.button("🧪 Causality Assessment", key="open_factor_causality_assessment"):
+    _causality_assessment_dialog()
