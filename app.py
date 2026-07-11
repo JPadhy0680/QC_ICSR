@@ -2629,17 +2629,66 @@ if st.session_state.get("show_factor_causality_assessment", False):
             key="causality_single_event",
         )
 
+        # Sequential validation: each next factor is enabled only after the previous factor is selected.
+        factor_state_keys = [
+            "causality_time_relationship",
+            "causality_confounding_factor",
+            "causality_response_to_dc",
+            "causality_rc",
+            "causality_pharmacologically",
+        ]
+        for state_key in factor_state_keys:
+            if state_key not in st.session_state:
+                st.session_state[state_key] = ""
+
+        # If an earlier factor is cleared, automatically clear all downstream factors.
+        if not st.session_state.get("causality_time_relationship"):
+            for state_key in factor_state_keys[1:]:
+                st.session_state[state_key] = ""
+        elif not st.session_state.get("causality_confounding_factor"):
+            for state_key in factor_state_keys[2:]:
+                st.session_state[state_key] = ""
+        elif not st.session_state.get("causality_response_to_dc"):
+            for state_key in factor_state_keys[3:]:
+                st.session_state[state_key] = ""
+        elif not st.session_state.get("causality_rc"):
+            st.session_state["causality_pharmacologically"] = ""
+
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            time_value = st.selectbox("Time Relationship", TIME_RELATIONSHIP_OPTIONS, key="causality_time_relationship")
+            time_value = st.selectbox(
+                "Time Relationship",
+                TIME_RELATIONSHIP_OPTIONS,
+                key="causality_time_relationship",
+            )
         with c2:
-            conf_value = st.selectbox("Confounding Factor", CONFOUNDING_OPTIONS, key="causality_confounding_factor")
+            conf_value = st.selectbox(
+                "Confounding Factor",
+                CONFOUNDING_OPTIONS,
+                key="causality_confounding_factor",
+                disabled=not bool(time_value),
+            )
         with c3:
-            dc_value = st.selectbox("Response to DC", DECHALLENGE_OPTIONS, key="causality_response_to_dc")
+            dc_value = st.selectbox(
+                "Response to DC",
+                DECHALLENGE_OPTIONS,
+                key="causality_response_to_dc",
+                disabled=not bool(conf_value),
+            )
         with c4:
-            rc_value = st.selectbox("RC", RC_OPTIONS, key="causality_rc")
+            rc_value = st.selectbox(
+                "RC",
+                RC_OPTIONS,
+                key="causality_rc",
+                disabled=not bool(dc_value),
+            )
         with c5:
-            pharm_value = st.selectbox("Pharmacologically", PHARMACOLOGICALLY_OPTIONS, key="causality_pharmacologically")
+            pharm_value = st.selectbox(
+                "Pharmacologically",
+                PHARMACOLOGICALLY_OPTIONS,
+                key="causality_pharmacologically",
+                disabled=not bool(rc_value),
+            )
 
         calculated_causality = calculate_factor_based_causality(
             pharm_value,
