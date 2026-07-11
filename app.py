@@ -9,7 +9,7 @@ from pathlib import Path
 
 # ---------------- UI setup ----------------
 st.set_page_config(page_title="XML R3 Comparator", layout="wide")
-st.title("XML R3 Comparator")
+st.markdown('<h1 class="app-title">XML R3 Comparator</h1>', unsafe_allow_html=True)
 
 # ---------------- Utilities ----------------
 NS = {'hl7': 'urn:hl7-org:v3', 'xsi': 'http://www.w3.org/2001/XMLSchema-instance'}
@@ -70,7 +70,8 @@ TD_PATHS = [
 # --- UI styling ---
 BOX_CSS = """
 <style>
-.block-container { padding-top: 1.2rem; }
+.block-container { padding-top: 2rem; }
+.app-title { font-size: 34px; line-height: 1.35; font-weight: 700; color: #1f2937; margin: 0 0 1.4rem 0; padding: 0; letter-spacing: 0.01em; }
 .qc-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 12px; }
 .qc-kpi { border-radius: 12px; padding: 12px 14px; border: 1px solid #e5e7eb; background: #f8fbff; }
 .qc-kpi-label { color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
@@ -1894,14 +1895,18 @@ def _filtered_table(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def _style_comparison_df(df: pd.DataFrame):
+    statuses = df.get("Status", pd.Series([""] * len(df), index=df.index))
+    display_df = df.drop(columns=["Status"], errors="ignore")
+
     def row_style(row):
-        status = str(row.get("Status", ""))
+        status = str(statuses.loc[row.name]) if row.name in statuses.index else ""
         if status == "Mismatch":
             return ["background-color: #fee2e2"] * len(row)
         if status == "Missing":
             return ["background-color: #fef3c7"] * len(row)
         return [""] * len(row)
-    return df.style.apply(row_style, axis=1)
+
+    return display_df.style.apply(row_style, axis=1)
 
 def render_table(df: pd.DataFrame, use_container_width: bool = True):
     df2 = _filtered_table(df)
@@ -1911,7 +1916,7 @@ def render_table(df: pd.DataFrame, use_container_width: bool = True):
     if _is_comparison_df(df2):
         st.dataframe(_style_comparison_df(df2), use_container_width=use_container_width, hide_index=True)
     else:
-        st.dataframe(df2, use_container_width=use_container_width, hide_index=True)
+        st.dataframe(df2.drop(columns=["Status"], errors="ignore"), use_container_width=use_container_width, hide_index=True)
 
 def count_mismatch_rows(df: pd.DataFrame) -> int:
     if df is None or df.empty:
@@ -2262,7 +2267,7 @@ def build_causality_assessment_events(src_events: List[Dict[str, Any]], prc_even
     return labels
 
 # --------------- UI: Upload & Parse ----------------
-st.markdown("### 📤 Upload the XML files to compare")
+st.markdown("### Upload the XML files to compare")
 st.info("MedDRA is loaded automatically from the GitHub repository data folder. Upload only the Source and Processed XML files here.")
 col1, col2 = st.columns(2)
 with col1:
