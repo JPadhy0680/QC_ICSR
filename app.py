@@ -69,6 +69,20 @@ TD_PATHS = [
 
 # --- UI styling ---
 BOX_CSS = """
+<style>
+.block-container { padding-top: 1.2rem; }
+.qc-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 12px; }
+.qc-kpi { border-radius: 12px; padding: 12px 14px; border: 1px solid #e5e7eb; background: #f8fbff; }
+.qc-kpi-label { color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.qc-kpi-value { color: #111827; font-size: 16px; font-weight: 700; margin-top: 4px; }
+.qc-result { border-radius: 10px; padding: 16px 18px; font-size: 20px; font-weight: 800; text-align:center; border: 1px solid #e5e7eb; }
+.qc-result-certain { background:#dcfce7; color:#166534; border-color:#86efac; }
+.qc-result-probable { background:#e0f2fe; color:#075985; border-color:#7dd3fc; }
+.qc-result-possible { background:#fef9c3; color:#854d0e; border-color:#fde047; }
+.qc-result-unlikely { background:#ffedd5; color:#9a3412; border-color:#fdba74; }
+.qc-result-unassessable { background:#f3f4f6; color:#374151; border-color:#d1d5db; }
+.qc-result-empty { background:#fafafa; color:#6b7280; border-color:#e5e7eb; }
+</style>
 """
 st.markdown(BOX_CSS, unsafe_allow_html=True)
 
@@ -1861,8 +1875,65 @@ def compare_table(rows: List[Tuple[str, Any, Any]], treat_as_dates: bool = False
         if not s_txt and not p_txt:
             continue
         marker = mismatch_marker(s_txt, p_txt, is_date=treat_as_dates)
-        disp.append({"Field": field, "Source": safe_disp(s_txt), "Processed": safe_disp(p_txt) + marker})
-    return pd.DataFrame(disp) if disp else pd.DataFrame(columns=["Field", "Source", "Processed"])
+        status = "Mismatch" if marker else ("Missing" if (not s_txt or not p_txt) else "Match")
+        disp.append({"Field": field, "Source": safe_disp(s_txt), "Processed": safe_disp(p_txt) + marker, "Status": status})
+    return pd.DataFrame(disp) if disp else pd.DataFrame(columns=["Field", "Source", "Processed", "Status"])
+
+def _is_comparison_df(df: pd.DataFrame) -> bool:
+    return isinstance(df, pd.DataFrame) and {"Field", "Source", "Processed"}.issubset(set(df.columns))
+
+def _filtered_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    if _is_comparison_df(out):
+        if "Status" not in out.columns:
+            out["Status"] = out.apply(lambda r: "Mismatch" if "🔴" in str(r.get("Processed", "")) else ("Missing" if (str(r.get("Source", "")) == "—" or str(r.get("Processed", "")).replace(" 🔴", "") == "—") else "Match"), axis=1)
+        if st.session_state.get("show_only_mismatches", False):
+            out = out[out["Status"].isin(["Mismatch", "Missing"])]
+    return out
+
+def _style_comparison_df(df: pd.DataFrame):
+    def row_style(row):
+        status = str(row.get("Status", ""))
+        if status == "Mismatch":
+            return ["background-color: #fee2e2"] * len(row)
+        if status == "Missing":
+            return ["background-color: #fef3c7"] * len(row)
+        return [""] * len(row)
+    return df.style.apply(row_style, axis=1)
+
+def render_table(df: pd.DataFrame, use_container_width: bool = True):
+    df2 = _filtered_table(df)
+    if df2 is None or df2.empty:
+        st.info("No rows to display for the current filter.")
+        return
+    if _is_comparison_df(df2):
+        st.dataframe(_style_comparison_df(df2), use_container_width=use_container_width, hide_index=True)
+    else:
+        st.dataframe(df2, use_container_width=use_container_width, hide_index=True)
+
+def count_mismatch_rows(df: pd.DataFrame) -> int:
+    if df is None or df.empty:
+        return 0
+    if "Status" in df.columns:
+        return int(df["Status"].isin(["Mismatch", "Missing"]).sum())
+    if "Processed" in df.columns:
+        return int(df["Processed"].astype(str).str.contains("🔴", regex=False).sum())
+    return 0
+
+def section_header(title: str, anchor_id: str):
+    st.markdown(f'<a id="{anchor_id}"></a>', unsafe_allow_html=True)
+    st.subheader(title)
+
+def _result_class(value: str) -> str:
+    val = (value or "").strip().lower().replace("/", "")
+    if val == "certain": return "qc-result-certain"
+    if val == "probable": return "qc-result-probable"
+    if val == "possible": return "qc-result-possible"
+    if val == "unlikely": return "qc-result-unlikely"
+    if val == "unassessable": return "qc-result-unassessable"
+    return "qc-result-empty"
 
 
 def make_amendment_nullification_table(src: Dict[str, str], prc: Dict[str, str]) -> pd.DataFrame:
@@ -2217,19 +2288,74 @@ if src.get("_error") or prc.get("_error"):
     st.error(f"Source error: {src.get('_error', '-')}\nProcessed error: {prc.get('_error', '-')}")
     st.stop()
 
+# ---------------- UI controls, navigation and top summary ----------------
+st.sidebar.title("QC Navigation")
+st.sidebar.checkbox("Show only mismatches / missing", key="show_only_mismatches")
+st.sidebar.markdown("""
+- [Admin](#admin)
+- [Reporter](#reporter)
+- [Patient](#patient)
+- [Drug History](#drug-history)
+- [Medical History](#medical-history)
+- [Drug](#drug)
+- [Event](#event)
+- [Amendment / Nullification](#amendment-nullification)
+- [Lab](#lab)
+- [Narrative](#narrative)
+- [Causality](#causality)
+""")
+
+with st.container(border=True):
+    st.markdown("### Case identifiers")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>Source WWID</div><div class='qc-kpi-value'>{safe_disp(src.get('WWID', ''))}</div></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>Processed WWID</div><div class='qc-kpi-value'>{safe_disp(prc.get('WWID', ''))}</div></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>Day Zero</div><div class='qc-kpi-value'>{safe_disp((src.get('TD', '') or format_date(src.get('TD_raw', ''))))}</div></div>", unsafe_allow_html=True)
+    c4.markdown(f"<div class='qc-kpi'><div class='qc-kpi-label'>First Sender</div><div class='qc-kpi-value'>{safe_disp(src.get('First Sender Type', '') or prc.get('First Sender Type', ''))}</div></div>", unsafe_allow_html=True)
+
+# Lightweight mismatch summary for immediate QC focus.
+summary_rows = []
+try:
+    summary_rows.append({"Section": "Admin", "Mismatches/Missing": count_mismatch_rows(make_admin_table(src, prc)), "Source records": 1, "Processed records": 1})
+    summary_rows.append({"Section": "Patient", "Mismatches/Missing": count_mismatch_rows(make_patient_table(src.get('Patient', {}), prc.get('Patient', {}))), "Source records": 1, "Processed records": 1})
+    src_reps_tmp = src.get("Reporters", []) or []
+    prc_reps_tmp = prc.get("Reporters", []) or []
+    rep_mis = 0
+    for i in range(max(len(src_reps_tmp), len(prc_reps_tmp))):
+        rep_mis += count_mismatch_rows(make_reporter_pair_table(src_reps_tmp[i] if i < len(src_reps_tmp) else {}, prc_reps_tmp[i] if i < len(prc_reps_tmp) else {}))
+    summary_rows.append({"Section": "Reporter", "Mismatches/Missing": rep_mis, "Source records": len(src_reps_tmp), "Processed records": len(prc_reps_tmp)})
+    summary_rows.append({"Section": "Drug", "Mismatches/Missing": "Review detail", "Source records": len(src.get('Products', []) or []), "Processed records": len(prc.get('Products', []) or [])})
+    summary_rows.append({"Section": "Event", "Mismatches/Missing": "Review detail", "Source records": len(src.get('Events', []) or []), "Processed records": len(prc.get('Events', []) or [])})
+    summary_rows.append({"Section": "Lab", "Mismatches/Missing": "Review detail", "Source records": len(src.get('LabDetails', []) or []), "Processed records": len(prc.get('LabDetails', []) or [])})
+    summary_rows.append({"Section": "Causality", "Mismatches/Missing": "Review detail", "Source records": len(src.get('Causality', []) or []), "Processed records": len(prc.get('Causality', []) or [])})
+    summary_df = pd.DataFrame(summary_rows)
+    with st.expander("Comparison Summary", expanded=True):
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        out_xlsx = io.BytesIO()
+        with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
+            summary_df.to_excel(writer, sheet_name="Summary", index=False)
+            make_admin_table(src, prc).to_excel(writer, sheet_name="Admin", index=False)
+            make_patient_table(src.get('Patient', {}), prc.get('Patient', {})).to_excel(writer, sheet_name="Patient", index=False)
+            make_amendment_nullification_table(src.get('Amendment/Nullification', {}) or {}, prc.get('Amendment/Nullification', {}) or {}).to_excel(writer, sheet_name="Amendment", index=False)
+            pd.DataFrame(src.get('Causality', []) or []).to_excel(writer, sheet_name="Causality_Source", index=False)
+            pd.DataFrame(prc.get('Causality', []) or []).to_excel(writer, sheet_name="Causality_Processed", index=False)
+        st.download_button("Download QC summary Excel", data=out_xlsx.getvalue(), file_name="qc_summary.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+except Exception as e:
+    st.warning(f"Could not build summary/export: {e}")
+
 # ==========================================================
 # DISPLAY — ORDER YOU REQUESTED
 # ==========================================================
 # 1) Admin
-st.subheader("Admin")
+section_header("Admin", "admin")
 admin_df = make_admin_table(src, prc)
 if not admin_df.empty:
-    st.table(admin_df)
+    render_table(admin_df)
 else:
     st.markdown('<div style="color:#888">No header/admin values present.</div>', unsafe_allow_html=True)
 
 # 2) Reporter
-st.subheader("Reporter")
+section_header("Reporter", "reporter")
 src_reps = src.get("Reporters", []) or []
 prc_reps = prc.get("Reporters", []) or []
 n_boxes = max(len(src_reps), len(prc_reps))
@@ -2243,7 +2369,7 @@ else:
         try:
             r_df = make_reporter_pair_table(srep, prep)
             if not r_df.empty:
-                st.table(r_df)
+                render_table(r_df)
             else:
                 st.markdown('<div style="color:#888">No values for this reporter.</div>', unsafe_allow_html=True)
         except Exception as e:
@@ -2251,15 +2377,15 @@ else:
         st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
 # 3) Patient
-st.subheader("Patient")
+section_header("Patient", "patient")
 pat_df = make_patient_table(src.get("Patient", {}), prc.get("Patient", {}))
 if not pat_df.empty:
-    st.table(pat_df)
+    render_table(pat_df)
 else:
     st.markdown('<div style="color:#888">No patient values present.</div>', unsafe_allow_html=True)
 
 # 4) Drug History
-st.subheader("Drug History")
+section_header("Drug History", "drug-history")
 src_dh = src.get("DrugHistory", []) or []
 prc_dh = prc.get("DrugHistory", []) or []
 
@@ -2281,7 +2407,7 @@ def make_drughist_box_for_ui(src_rec: Dict[str, Any], prc_rec: Dict[str, Any], t
     ]
     df = compare_table(rows, treat_as_dates=True)
     if not df.empty:
-        st.table(df)
+        render_table(df)
     else:
         st.markdown('<div style="color:#888">No values for this drug-history item.</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
@@ -2296,7 +2422,7 @@ else:
         make_drughist_box_for_ui(se, pe, title)
 
 # 5) Medical History (after Drug History)
-st.subheader("Medical History")
+section_header("Medical History", "medical-history")
 
 # Death Details mini-box at top of this section
 src_dd_raw = src.get("DeathDetails", [])
@@ -2330,7 +2456,7 @@ if n_dd_boxes:
         if not dd_df.empty:
             any_dd_displayed = True
             st.markdown(f'<h6 style="margin-top:0.5rem;margin-bottom:0.25rem;">Death Details {i+1}</h6><hr/>', unsafe_allow_html=True)
-            st.table(dd_df)
+            render_table(dd_df)
             st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
 # Existing Medical History items
@@ -2372,7 +2498,7 @@ def make_mh_box_for_ui(src_rec: Dict[str, Any], prc_rec: Dict[str, Any], title: 
     ]
     mh_df = compare_table(pairs, treat_as_dates=True)
     if not mh_df.empty:
-        st.table(mh_df)
+        render_table(mh_df)
     else:
         st.markdown('<div style="color:#888">No values for this item.</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
@@ -2387,7 +2513,7 @@ else:
         make_mh_box_for_ui(se, pe, title)
 
 # 6) Drug
-st.subheader("Drug")
+section_header("Drug", "drug")
 src_prods = src.get("Products", [])
 prc_prods = prc.get("Products", [])
 
@@ -2434,13 +2560,13 @@ else:
             )
             d_df = make_drug_compare_table(srec or {}, prec or {})
             if not d_df.empty:
-                st.table(d_df)
+                render_table(d_df)
             else:
                 st.markdown('<div style="color:#888">No values to display for this drug.</div>', unsafe_allow_html=True)
             st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
 # 7) Event
-st.subheader("Event")
+section_header("Event", "event")
 src_evts = src.get("Events", []) or []
 prc_evts = prc.get("Events", []) or []
 
@@ -2475,7 +2601,7 @@ def make_event_box_for_ui(src_rec: Dict[str, Any], prc_rec: Dict[str, Any], titl
         rows.append((field, s_val, p_val))
     e_df = compare_table(rows, treat_as_dates=True)
     if not e_df.empty:
-        st.table(e_df)
+        render_table(e_df)
     else:
         st.markdown('<div style="color:#888">No values to display for this event.</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
@@ -2490,17 +2616,17 @@ else:
         make_event_box_for_ui(se, pe, title)
 
 # 8) Amendment / Nullification
-st.subheader("Amendment / Nullification")
+section_header("Amendment / Nullification", "amendment-nullification")
 src_amend = src.get("Amendment/Nullification", {}) or {}
 prc_amend = prc.get("Amendment/Nullification", {}) or {}
 amend_df = make_amendment_nullification_table(src_amend, prc_amend)
 if not amend_df.empty:
-    st.table(amend_df)
+    render_table(amend_df)
 else:
     st.markdown('<div style="color:#888">No amendment/nullification values present in either file.</div>', unsafe_allow_html=True)
 
 # 9) Lab
-st.subheader("Lab")
+section_header("Lab", "lab")
 src_lab = src.get("LabDetails", []) or []
 prc_lab = prc.get("LabDetails", []) or []
 
@@ -2537,7 +2663,7 @@ def make_lab_box_for_ui(src_rec: Dict[str, Any], prc_rec: Dict[str, Any], title:
     ]
     df = compare_table(rows, treat_as_dates=True)
     if not df.empty:
-        st.table(df)
+        render_table(df)
     else:
         st.markdown('<div style="color:#888">No values for this lab item.</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
@@ -2566,7 +2692,7 @@ else:
             make_lab_box_for_ui(se, pe, title)
 
 # 10) Narrative
-st.subheader("Narrative")
+section_header("Narrative", "narrative")
 src_narr_full = src.get("Narrative", "") or ""
 prc_narr_full = prc.get("Narrative", "") or ""
 if not has_value(src_narr_full) and not has_value(prc_narr_full):
@@ -2578,9 +2704,12 @@ else:
     st.markdown('<h6>Processed</h6>', unsafe_allow_html=True)
     st.markdown(f'<div style="white-space:pre-wrap">{prc_narr_full if prc_narr_full else "—"}</div>', unsafe_allow_html=True)
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
+    ncol1, ncol2 = st.columns(2)
+    ncol1.download_button("Download Source Narrative", data=src_narr_full.encode("utf-8"), file_name="source_narrative.txt", mime="text/plain")
+    ncol2.download_button("Download Processed Narrative", data=prc_narr_full.encode("utf-8"), file_name="processed_narrative.txt", mime="text/plain")
 
 # 11) Causality — SINGLE CONSOLIDATED TABLE
-st.subheader("Causality")
+section_header("Causality", "causality")
 
 def _caus_df(lst: List[Dict[str, Any]]) -> pd.DataFrame:
     if not lst:
@@ -2699,21 +2828,11 @@ if st.session_state.get("show_factor_causality_assessment", False):
         )
 
         st.markdown("##### Calculated Causality")
-        if calculated_causality:
-            st.markdown(
-                f"""
-                <div style="border:1px solid #d9e2ec; border-radius:10px; padding:16px 18px; background:#f8fbff; font-size:18px; font-weight:700;">
-                    {calculated_causality}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                """
-                <div style="border:1px solid #e5e7eb; border-radius:10px; padding:16px 18px; background:#fafafa; color:#6b7280;">
-                    Select factor values to calculate causality.
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        rclass = _result_class(calculated_causality)
+        result_text = calculated_causality if calculated_causality else "Select factor values to calculate causality."
+        st.markdown(f"<div class='qc-result {rclass}'>{result_text}</div>", unsafe_allow_html=True)
+        if st.button("Reset Causality Factors", key="reset_causality_factors"):
+            for key in ["causality_time_relationship", "causality_confounding_factor", "causality_response_to_dc", "causality_rc", "causality_pharmacologically"]:
+                if key in st.session_state:
+                    st.session_state[key] = ""
+            st.rerun()
