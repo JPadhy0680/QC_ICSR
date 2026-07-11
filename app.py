@@ -2096,12 +2096,7 @@ CONFOUNDING_OPTIONS = ["", "Yes", "No", "Plausible"]
 TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "Unk", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
-    """Calculate causality using the latest criteria/factor matrix.
-
-    Latest matrix update:
-    - Probable rule 3 allows Pharmacologically = Any Value/Blank.
-    - Confounding Factor No/Blank is accepted for Certain and all Probable rules.
-    """
+    """Calculate causality using the latest criteria/factor matrix."""
     pharm = str(pharmacologically or "").strip().lower()
     rc = str(rechallenge or "").strip().lower()
     dc = str(response_to_dc or "").strip().lower()
@@ -2113,19 +2108,22 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
 
     rc_positive_or_na = rc in {"+ve", "positive", "na", "not applicable", "+ve/na", "+ve/ na"}
     rc_negative_or_unknown = rc in {"-ve", "negative", "unk", "unknown", "- ve", "-ve/unk", "-ve/ unk"}
+    rc_blank = rc == ""
+
     dc_positive = dc in {"+ve", "positive"}
     dc_negative_unknown_na = dc in {"-ve", "negative", "unk", "unknown", "na", "not applicable", "- ve", "-ve/unk", "-ve/ unk"}
+    dc_blank = dc == ""
 
     pharm_yes = pharm == "yes"
     pharm_no = pharm == "no"
     pharm_blank = pharm == ""
-    rc_blank = rc == ""
-    dc_blank = dc == ""
+
     conf_yes = conf == "yes"
     conf_no = conf == "no"
     conf_blank = conf == ""
     conf_no_or_blank = conf in {"no", ""}
     conf_plausible = conf == "plausible"
+
     time_yes = time_rel == "yes"
     time_improbable = time_rel in {"improbable", "improbabe"}
     time_unknown = time_rel in {"unk", "unknown"}
@@ -2138,12 +2136,16 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     if pharm_no and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
-    # Probable 2: Pharm Any Value/Blank + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
+    # Probable 2: Pharm Any Value + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
     if rc_negative_or_unknown and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
     # Probable 3: Pharm Blank + RC Blank + DC +Ve + Confounding No/Blank + Time Yes
     if pharm_blank and rc_blank and dc_positive and conf_no_or_blank and time_yes:
+        return "Probable"
+
+    # Probable 4: Pharm Blank + RC +Ve + DC +Ve + Confounding No/Blank + Time Yes
+    if pharm_blank and rc_positive_or_na and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
     # Possible 1: Pharm Any Value + RC Any Value + DC -Ve/Unk/NA + Confounding No + Time Yes
