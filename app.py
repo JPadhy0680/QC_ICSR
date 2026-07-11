@@ -2096,7 +2096,12 @@ CONFOUNDING_OPTIONS = ["", "Yes", "No", "Plausible"]
 TIME_RELATIONSHIP_OPTIONS = ["", "Yes", "Unk", "Improbable"]
 
 def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, response_to_dc: str, confounding_factor: str, time_relationship: str) -> str:
-    """Calculate causality using the latest criteria/factor matrix."""
+    """Calculate causality using the latest criteria/factor matrix.
+
+    Latest matrix update:
+    - Probable rule 3 allows Pharmacologically = Any Value/Blank.
+    - Confounding Factor No/Blank is accepted for Certain and all Probable rules.
+    """
     pharm = str(pharmacologically or "").strip().lower()
     rc = str(rechallenge or "").strip().lower()
     dc = str(response_to_dc or "").strip().lower()
@@ -2133,7 +2138,7 @@ def calculate_factor_based_causality(pharmacologically: str, rechallenge: str, r
     if pharm_no and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
-    # Probable 2: Pharm Any Value + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
+    # Probable 2: Pharm Any Value/Blank + RC -Ve/Unk + DC +Ve + Confounding No/Blank + Time Yes
     if rc_negative_or_unknown and dc_positive and conf_no_or_blank and time_yes:
         return "Probable"
 
