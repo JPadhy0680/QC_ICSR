@@ -8,8 +8,8 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 from pathlib import Path
 
 # ---------------- UI setup ----------------
-st.set_page_config(page_title="XML R3 Comparator", layout="wide")
-st.markdown('<h1 class="app-title">XML R3 Comparator</h1>', unsafe_allow_html=True)
+st.set_page_config(page_title="XML Qualty Reviewer - Automation", layout="wide")
+st.markdown('<h1 class="app-title">XML Qualty Reviewer - Automation</h1>', unsafe_allow_html=True)
 
 # ---------------- Utilities ----------------
 NS = {'hl7': 'urn:hl7-org:v3', 'xsi': 'http://www.w3.org/2001/XMLSchema-instance'}
